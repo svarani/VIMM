@@ -1,0 +1,233 @@
+%% some parameters that need to be check manually on imageJ and changed
+% point in the channel: need to check at which y is the channel
+% remember to put the pixel not the um
+yChannel=1113;
+% z near or inside the channel, need to check this aswell
+zChannel=11;
+% point on top. maybe *.9 and round it to get the 90%
+manualZtop=0;
+% change to 1 if you want to do the imagej "auto" contrast
+contrastAdjust=0;
+% change to 1 if you want to save the file as excel
+saveExcel=0;
+%% load the image and save it as a matlab file
+% select the images
+[nomeFile,nomeCartella] = uigetfile('*.*','Select the image');
+nomeCompleto=[nomeCartella,nomeFile];
+%make the plot dir if is not present
+if ~exist([nomeCartella,'plots'], 'dir')
+       mkdir([nomeCartella,'plots'])
+end
+% name to save the figures
+nomeFilenoDots=split(nomeFile,'.');
+nomeFilenoDots=nomeFilenoDots{1};
+% get the image info to select the center column
+informazioni=imfinfo(nomeCompleto);
+% get the pixel size in um
+pixelSizeUm=1/informazioni.XResolution;
+% if you want not the center column but another simply change this
+centerColumn=round(informazioni(1).Width/2);
+% get the info to reslice the image so that each column is a z stack
+% and the 3rd dimension is the time
+toResliceStart=strfind(informazioni(1).ImageDescription,'frames=');
+toResliceEnd=strfind(informazioni(1).ImageDescription,'hyperstack');
+toReslice=str2double(informazioni(1).ImageDescription(toResliceStart+7:toResliceEnd-1));
+toReslice2Start=strfind(informazioni(1).ImageDescription,'images=');
+toReslice2End=strfind(informazioni(1).ImageDescription,'slices=');
+toReslice2=str2double(informazioni(1).ImageDescription(toReslice2Start+7:toReslice2End-1));
+% import the center column of our image
+ourTarget = squeeze(tiffreadVolume(nomeCompleto,'PixelRegion',{[1,inf],[centerColumn,centerColumn],[1,toReslice2]}));
+ourTarget=reshape(ourTarget,informazioni.Height,[],toReslice);
+% change the contrast as "auto" in imagej
+if contrastAdjust
+    ourTarget=imadjustn(ourTarget);
+end
+% save the matrix and eventually export in an excel file
+nomeCompletoNodots=split(nomeCompleto,'.');
+nomeCompletoNodots=nomeCompletoNodots{1};
+save(nomeCompletoNodots,"ourTarget")
+if saveExcel
+    writematrix(ourTarget,[nomeCompletoNodots,'.xlsx'])
+end
+%% do the graphs
+zTop=size(ourTarget,2);
+if manualZtop
+    zTop=manualZtop;
+end
+% Smooth the data to remove "noise": technique prefer to the implementation
+%of manual "DesignFilter" to avoid random problems with 3D data input
+smoothedFigure=smoothdata(ourTarget,1,'gaussian',20);
+%% graph 1 at fixed Z intensity profile in time
+figure('WindowState', 'maximized')
+legendTime=cell(size(ourTarget,3),1);
+distanceInUm=(1:informazioni.Width)*pixelSizeUm;
+hold on
+for iTstack=1:size(ourTarget,3)
+    plot(distanceInUm,smoothedFigure(:,zChannel,iTstack))
+    legendTime{iTstack,1}=sprintf('Time%u',iTstack);
+    % plot(decimate((1:informazioni.Width)*pixelSizeUm,50),decimate(smoothedFigure(:,zChannel,iTstack),50))
+end
+hold off
+xlabel('distance (um)')
+ylabel('intesity')
+legend(legendTime,'Location','southoutside','NumColumns',14)
+saveas(gcf,sprintf('%s%sProfileIntensityinTimewithZfixed.png',[nomeCartella,'plots\'],nomeFilenoDots))
+%% graph 2 profile of diffusion from the channel to the top for each time
+figure('WindowState', 'maximized')
+legendTime=cell(size(ourTarget,3),1);
+%distance from selected channel z in um
+xvector=((zChannel:zTop)-zChannel)*10;
+hold on
+for iTstack=1:size(ourTarget,3)
+    plot(xvector,smoothedFigure(yChannel,zChannel:zTop,iTstack))
+    legendTime{iTstack,1}=sprintf('Time%u',iTstack);
+    % plot(decimate((1:informazioni.Width)*pixelSizeUm,50),decimate(smoothedFigure(:,zChannel,iTstack),50))
+end
+hold off
+xlabel('distance (um)')
+ylabel('intesity')
+legend(legendTime,'Location','southoutside','NumColumns',14)
+saveas(gcf,sprintf('%s%sDiffusionfromthechanneltothetopindistance.png',[nomeCartella,'plots\'],nomeFilenoDots))
+%% graph 3 for each z the fluorescence in t of a point at the center of the channel
+figure('WindowState', 'maximized')
+timeVector=(1:toReslice)*2;
+%Particular case for Exp20
+% timeVector=timeVector(:,[1:9]);
+toMakeLegend=zTop-zChannel;
+legendZ=cell(toMakeLegend,1);
+hold on
+legendCounter=1;
+for iZ=zChannel:zTop
+    plot(timeVector,squeeze(smoothedFigure(yChannel,iZ,:))); 
+    legendZ{legendCounter,1}=sprintf("%u um",(iZ-zChannel)*10);
+    legendCounter=legendCounter+1;
+end
+hold off
+title('diffusion in time at difference distance from the channel');
+xlabel('time (min)')
+ylabel('fluorescence (a.u.)')
+legend(legendZ,'Location','southoutside','NumColumns',14)
+saveas(gcf,sprintf('%s%sDiffusionfromthechanneltothetopintime.png',[nomeCartella,'plots\'],nomeFilenoDots))
+%% graph 4 for the first (+10um) and the last z(zTop-10um) the fluorescence in t of a point at the center of the channel
+figure('WindowState', 'maximized')
+timeVector=(1:toReslice)*2;
+%Particular case for Exp20
+% timeVector=timeVector(:,[1:9]);
+toMakeLegend=zTop-zChannel;
+legendZ_two=cell(2,1);
+legendCounter=[1:2];
+for iZ=zChannel:zTop
+    plot(timeVector,squeeze(smoothedFigure(yChannel,zChannel,:)),'-g'); 
+    legendZ_two{1,1}=sprintf("%u um",(zChannel)*10)
+    hold on
+    plot(timeVector,squeeze(smoothedFigure(yChannel,end,:)));
+    legendZ_two{2,1}=sprintf("%u um",(zTop-zChannel)*10);
+end
+hold off
+title('diffusion in time at difference distance from the channel');
+xlabel('time (min)')
+ylabel('fluorescence (a.u.)')
+legend(legendZ_two,'Location','southoutside','NumColumns',14)
+saveas(gcf,sprintf('%s%sDiffusionfromthechanneltothetopintime2curves.png',[nomeCartella,'plots\'],nomeFilenoDots))
+%%
+% %% graphx diffusion in Z along distance
+% % smooth or decimate the traces
+% arbitraryT=round(size(ourTarget,3)/5);
+% %In order to have the conversion factor from pixel to um:
+% %1.We find out the inverse of "informazioni.Xresolution" corresponds to the
+% %factor identifies in Fiji with Pixel Width-Pixel Height
+% figure(1)
+% title('Profile of diffusion in Z along distance')
+% hold on
+% for iZstack=1:size(ourTarget,2)
+% % plot((1:informazioni.Width)*distance_um,smoothedFigure(:,arbitraryT,iZstack))
+% plot((1:informazioni.Width)*pixelSizeUm,ourTarget(:,arbitraryT,iZstack))
+% end
+% hold off
+% saveas(gcf,sprintf('%s_DiffinSpace',nomeCompletoNodots),'png')
+% %%
+% % figure(2)
+% % subplot(211)
+% % arbitraryZ=round(size(ourTarget,2)/2);
+% % arbitraryZ=11;
+% % for iTstack=1:size(ourTarget,3)
+% % plot((1:informazioni.Width)*distance_um,smoothedFigure(:,arbitraryZ,1),'LineWidth',4)
+% % hold on
+% % plot((1:informazioni.Width)*distance_um,ourTarget(:,arbitraryZ,1))
+% % end
+% % subplot(212)
+% % for iTstack=1:size(ourTarget,3)
+% % plot((1:informazioni.Width)*distance_um,smoothedFigure(:,arbitraryZ,16),'LineWidth',4)
+% % hold on
+% % plot((1:informazioni.Width)*distance_um,ourTarget(:,arbitraryZ,16))
+% % end
+% figure(2)
+% 
+% 
+% 
+% %% Diffusion in time from different z of the channel separate graphs
+% %120 min, total duration of the experiment
+% timeVector=(1:toReslice)*2;
+% title('profile of diffusion at different Z')
+% for iZ=zChannel:zTop
+%     figure(3)
+%     plot(timeVector,squeeze(smoothedFigure(yChannel,iZ,:)));
+%     zDistance=10*(iZ-zChannel);
+%     title(sprintf('diffusion in time at %u um from the channel',zDistance));
+%     xlabel('time (min)')
+%     ylabel('fluorescence (a.u.)')
+%     saveas(gcf,sprintf('%s%u_fromChannelDiffinTime',nomeCompletoNodots,zDistance),'png')
+% end
+% close all 
+% %% Diffusion in time from different z of the channel one graph
+% %120 min, total duration of the experiment
+% timeVector=(1:toReslice)*2;
+% figure(3)
+% hold on
+% iZ=59
+% abba=smoothedFigure(yChannel,iZ,:);
+% for iZ=zChannel:zTop
+%     plot(timeVector,squeeze(smoothedFigure(yChannel,iZ,:)));
+%     zDistance=10*(iZ-zChannel);
+%     title(sprintf('diffusion in time at %u um from the channel',zDistance));
+%     xlabel('time (min)')
+%     ylabel('fluorescence (a.u.)')
+% end
+%     saveas(gcf,sprintf('%s%u_fromChannelDiffinTime',nomeCompletoNodots,zDistance),'png')
+% %% section of the channel and the value of pixel from the channel
+% %Introduction of lowess: a specific filter to reduce discontinuities
+% profileChannel=squeeze(smoothedFigure(yChannel,:,:));
+% profileChannel=profileChannel(zChannel:end,:);
+% 
+% for iTstack=1:size(ourTarget,3)
+%     figure(5)
+%     subplot(311)
+%     plot(profileChannel(:,iTstack))
+%     title('profile of diffusion from the channel to the top in time gaussian 50')
+%     % saveas(gcf,sprintf('%s%u_fromChannelDiffinTime',nomeCompletoNodots,zDistance),'png')
+% end
+% close all
+% 
+% smoothedFigure_2=smoothdata(ourTarget,1,"lowess",50);
+% profileChannel=squeeze(smoothedFigure_2(yChannel,:,:));
+% profileChannel=profileChannel(zChannel:end,:);
+% 
+% 
+% for iTstack=1:size(ourTarget,3)
+%     subplot(312)
+%     plot(profileChannel(:,iTstack))
+%     title('profile of diffusion from the channel to the top in time lowess 50')
+% end
+% close all
+% 
+% smoothedFigure_2=smoothdata(ourTarget,1,"lowess",100);
+% profileChannel=squeeze(smoothedFigure_2(yChannel,:,:));
+% profileChannel=profileChannel(zChannel:end,:);
+% 
+% legendTime=[];
+% for iTstack=1:size(ourTarget,3)
+%     subplot(313)
+%     plot(profileChannel(:,iTstack))
+%     title('profile of diffusion from the channel to the top in time lowess 100')
+% end
+% close all
